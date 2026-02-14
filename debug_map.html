@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GeoJSON Debug Comparison</title>
+  <meta charset="utf-8" />
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+
+  <style>
+    #map {
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+var map = L.map('map').setView([6.3, 124.9], 9);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// Layer groups
+var originalLayer = L.layerGroup().addTo(map);
+var mergedLayer = L.layerGroup().addTo(map);
+var vertexLayer = L.layerGroup().addTo(map);
+
+// --- FUNCTION TO DRAW VERTICES ---
+function drawVertices(geojson, color) {
+  L.geoJSON(geojson, {
+    pointToLayer: function (feature, latlng) {
+      return L.circleMarker(latlng, {
+        radius: 3,
+        color: color,
+        fillOpacity: 1
+      }).addTo(vertexLayer);
+    },
+    onEachFeature: function (feature, layer) {
+      var coords = feature.geometry.coordinates;
+
+      function processCoords(coords) {
+        if (typeof coords[0][0] === "number") {
+          coords.forEach(function(c) {
+            L.circleMarker([c[1], c[0]], {
+              radius: 3,
+              color: color,
+              fillOpacity: 1
+            }).addTo(vertexLayer);
+          });
+        } else {
+          coords.forEach(processCoords);
+        }
+      }
+
+      processCoords(coords);
+    }
+  });
+}
+
+// --- LOAD ORIGINAL ---
+fetch("South_Cotabato_Philippines_original.geojson")
+  .then(res => res.json())
+  .then(data => {
+
+    var layer = L.geoJSON(data, {
+      style: {
+        color: "red",
+        weight: 1
+      }
+    }).addTo(originalLayer);
+
+    drawVertices(data, "red");
+
+    map.fitBounds(layer.getBounds());
+  });
+
+// --- LOAD MERGED ---
+fetch("South_Cotabato_Philippines.geojson")
+  .then(res => res.json())
+  .then(data => {
+
+    var layer = L.geoJSON(data, {
+      style: {
+        color: "blue",
+        weight: 3
+      }
+    }).addTo(mergedLayer);
+
+    drawVertices(data, "blue");
+  });
+
+// Layer control
+L.control.layers(null, {
+  "Original (Red)": originalLayer,
+  "Merged (Blue)": mergedLayer,
+  "Vertices": vertexLayer
+}).addTo(map);
+
+// Click debug
+map.on("click", function(e) {
+  console.log("Clicked:", e.latlng);
+});
+
+</script>
+
+</body>
+</html>

@@ -117,6 +117,18 @@ def process_city(city_name):
         gdf["geometry"] = gdf["geometry"].apply(lambda g: g.buffer(0) if not g.is_valid else g)
         gdf["geometry"] = gdf.simplify(tolerance=0.0001, preserve_topology=True)
 
+        # Export ORIGINAL (before merge)
+        original_geo_dict = json.loads(gdf.to_json())
+
+        original_path = os.path.join(
+            OUTPUT_FOLDER, f"{safe_name}_original.geojson"
+        )
+
+        with open(original_path, "w", encoding="utf-8") as f:
+            json.dump(original_geo_dict, f, indent=2)
+
+        print(f"Exported Original: {original_path}")
+
         # 4. Merge all polygons into one
         merged_geom = unary_union(gdf.geometry.tolist())
 
