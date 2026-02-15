@@ -19,10 +19,9 @@
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
-var map = L.map('map').setView([6.3, 124.9], 9);
+var map = L.map('map').setView([16.0, 121.0], 7);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
@@ -31,54 +30,56 @@ var layers = {};
 var colors = ["red", "blue", "green", "orange", "purple"];
 var vertexLayer = L.layerGroup().addTo(map);
 
-function drawVertices(geojson, color) {
-  L.geoJSON(geojson, {
-    pointToLayer: function (feature, latlng) {
-      return L.circleMarker(latlng, {
-        radius: 3,
-        color: color,
-        fillOpacity: 1
-      }).addTo(vertexLayer);
-    },
-    onEachFeature: function(feature, layer) {
-      var coords = feature.geometry.coordinates;
+// 👇 Manually list files for now
+var geojsonFiles = [
+  "Batanes.geojson",
+  "Cagayan.geojson",
+  "Isabela.geojson",
+  "Neuva_Vizcaya.geojson",
+  "Quirino.geojson"
+];
+
+function drawVertices(data, color) {
+  L.geoJSON(data, {
+    onEachFeature: function(feature) {
       function processCoords(coords) {
         if (typeof coords[0][0] === "number") {
           coords.forEach(c => {
             L.circleMarker([c[1], c[0]], {
-              radius: 3,
+              radius: 2,
               color: color,
               fillOpacity: 1
             }).addTo(vertexLayer);
           });
-        } else coords.forEach(processCoords);
+        } else {
+          coords.forEach(processCoords);
+        }
       }
-      processCoords(coords);
+      processCoords(feature.geometry.coordinates);
     }
   });
 }
 
-// List of files in output folder
-var geojsonFiles = ["South_Cotabato_Philippines.geojson", "Quezon_City_Philippines.geojson", "Makati_City_Philippines.geojson", "Batanes_Philippines.geojson"]; // add more
-
 geojsonFiles.forEach((file, idx) => {
-  fetch(`/output/${file}`)
+  fetch("output/" + file)
     .then(res => res.json())
     .then(data => {
       var color = colors[idx % colors.length];
+
       var layer = L.geoJSON(data, {
         style: { color: color, weight: 2 }
       }).addTo(map);
+
       layers[file] = layer;
       drawVertices(data, color);
 
-      if (idx === 0) map.fitBounds(layer.getBounds()); // fit map to first layer
+      if (idx === 0) map.fitBounds(layer.getBounds());
     });
 });
 
-// Add layer control
 L.control.layers(null, layers).addTo(map);
 </script>
+
 
 </body>
 </html>
