@@ -8,7 +8,7 @@
     rel="stylesheet"
     href="https://unpkg.com/leaflet/dist/leaflet.css"
   />
-
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <style>
     #map {
       height: 100vh;
@@ -26,11 +26,8 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-var layers = {};
 var colors = ["red", "blue", "green", "orange", "purple"];
-var vertexLayer = L.layerGroup().addTo(map);
 
-// 👇 Manually list files for now
 var geojsonFiles = [
   "Batanes.geojson",
   "Cagayan.geojson",
@@ -39,47 +36,22 @@ var geojsonFiles = [
   "Quirino.geojson"
 ];
 
-function drawVertices(data, color) {
-  L.geoJSON(data, {
-    onEachFeature: function(feature) {
-      function processCoords(coords) {
-        if (typeof coords[0][0] === "number") {
-          coords.forEach(c => {
-            L.circleMarker([c[1], c[0]], {
-              radius: 2,
-              color: color,
-              fillOpacity: 1
-            }).addTo(vertexLayer);
-          });
-        } else {
-          coords.forEach(processCoords);
-        }
-      }
-      processCoords(feature.geometry.coordinates);
-    }
-  });
-}
-
 geojsonFiles.forEach((file, idx) => {
   fetch("output/" + file)
-    .then(res => res.json())
+    .then(res => {
+      if (!res.ok) throw new Error("Failed to fetch " + file);
+      return res.json();
+    })
     .then(data => {
       var color = colors[idx % colors.length];
-
       var layer = L.geoJSON(data, {
         style: { color: color, weight: 2 }
       }).addTo(map);
 
-      layers[file] = layer;
-      drawVertices(data, color);
-
       if (idx === 0) map.fitBounds(layer.getBounds());
-    });
+    })
+    .catch(err => console.error(err));
 });
-
-L.control.layers(null, layers).addTo(map);
 </script>
-
-
 </body>
 </html>

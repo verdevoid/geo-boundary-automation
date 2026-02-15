@@ -140,12 +140,21 @@ def process_place(place_name, index):
     geom = gdf.iloc[0].geometry
     features = []
 
-    if geom.geom_type == "MultiPolygon":
-        print("Splitting MultiPolygon...")
-        for i, poly in enumerate(geom.geoms, start=1):
-            features.append(generate_feature(poly, f"{place_name} {i}"))
-    else:
-        features.append(generate_feature(geom, place_name))
+    for idx, row in gdf.iterrows():
+        geom = row.geometry
+
+        if geom.is_empty:
+            continue
+
+        # Fix invalid geometries
+        if not geom.is_valid:
+            geom = geom.buffer(0)
+
+        if geom.geom_type == "MultiPolygon":
+            for i, poly in enumerate(geom.geoms, start=1):
+                features.append(generate_feature(poly, f"{place_name} {idx}-{i}"))
+        elif geom.geom_type == "Polygon":
+            features.append(generate_feature(geom, f"{place_name} {idx}"))
 
     output = {
         "type": "FeatureCollection",
