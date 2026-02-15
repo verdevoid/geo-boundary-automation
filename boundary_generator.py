@@ -2,169 +2,77 @@ import os
 import json
 import osmnx as ox
 import geopandas as gpd
-from shapely.ops import unary_union
-
-# ------------------------------
-# CONFIGURATION
-# ------------------------------
-
-CITIES = [
-    "South Cotabato, Philippines"
-]
-
-ADMIN_LEVEL = "8"  
-# In PH:
-# 4 = Region
-# 6 = Province
-# 8 = City/Municipality
 
 OUTPUT_FOLDER = "output"
 
-# ------------------------------
-# SETUP
-# ------------------------------
+PLACES = [
+    {"name": "Quezon City, Philippines", "admin_level": "6"},
+    {"name": "Makati City, Philippines", "admin_level": "6"},
+    {"name": "Batanes, Philippines", "admin_level": "6"},
+    # add more here
+]
 
 if not os.path.exists(OUTPUT_FOLDER):
     os.makedirs(OUTPUT_FOLDER)
 
-# ------------------------------
-# FUNCTIONS
-# ------------------------------
 
-def clean_geometry(geometry):
-    """
-    Fix invalid polygons and simplify geometry slightly.
-    """
-    if not geometry.is_valid:
-        geometry = geometry.buffer(0)
+def process_place(place_name, expected_admin_level=None):
+    print(f"\nProcessing: {place_name}")
 
-    geometry = geometry.simplify(tolerance=0.0001, preserve_topology=True)
-    return geometry
-
-
-def validate_geometry(geometry):
-    """
-    Validate geometry and print issues.
-    """
-    if not geometry.is_valid:
-        print("Invalid Geometry:", explain_validity(geometry))
-        return False
-    return True
-
-def write_pretty_geojson(data, path):
-    """
-    Pretty-print GeoJSON with coordinates exactly like your template.
-    Handles Polygon or MultiPolygon.
-    """
-    def format_coords(coords, indent=6):
-        """
-        Recursively format coordinates with each pair on its own line.
-        """
-        if isinstance(coords[0][0], (float, int)):
-            # Single polygon
-            lines = [f"{' ' * indent}[{c[0]}, {c[1]}]" for c in coords]
-            return "[\n" + ",\n".join(lines) + "\n" + ' ' * (indent - 2) + "]"
-        else:
-            # MultiPolygon or nested arrays
-            lines = [format_coords(c, indent + 2) for c in coords]
-            return "[\n" + ",\n".join(lines) + "\n" + ' ' * (indent - 2) + "]"
-
-    lines = ["{"]
-    lines.append(f'  "type": "{data["type"]}",')
-    lines.append(f'  "features": [')
-
-    for i, feat in enumerate(data["features"]):
-        lines.append("    {")
-        lines.append(f'      "type": "{feat["type"]}",')
-        lines.append(f'      "id": {feat.get("id", "null")},')
-        # Pretty-print properties
-        prop_json = json.dumps(feat.get("properties", {}), indent=6)
-        prop_lines = ["      \"properties\": {"]
-        for line in prop_json.splitlines()[1:-1]:  # skip outer braces
-            prop_lines.append("      " + line)
-        prop_lines.append("      },")
-        lines.extend(prop_lines)
-        # Geometry
-        lines.append("      \"geometry\": {")
-        lines.append(f'        "type": "{feat["geometry"]["type"]}",')
-        lines.append(f'        "coordinates": {format_coords(feat["geometry"]["coordinates"], 10)}')
-        lines.append("      }")
-        lines.append("    }" + ("," if i < len(data["features"]) - 1 else ""))
-    
-    lines.append("  ]")
-    lines.append("}")
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-
-def process_city(city_name):
-    print(f"\nProcessing: {city_name}")
     try:
-        # 1. Fetch data
-        gdf = ox.features_from_place(
-            city_name, {"boundary": "administrative", "admin_level": ADMIN_LEVEL}
-        )
+        # 1️⃣ Get exact matched boundary
+        gdf = ox.geocode_to_gdf(place_name)
+
         if gdf.empty:
-            print("No features found.")
+            print("No boundary found.")
             return
 
-        # 2. Keep only Polygon/MultiPolygon
-        gdf = gdf[gdf.geometry.type.isin(["Polygon", "MultiPolygon"])].copy()
-        gdf = gdf[['name', 'geometry']]  # minimal properties
-        gdf = gdf.to_crs(epsg=4326)
+        # 2️⃣ Check admin level if requested
+        # Extract OSM identifiers
+        osm_type = gdf.iloc[0].get("type", "unknown")
+        osm_id = gdf.iloc[0].get("osmid", "N/A")
 
-        # 3. Clean & simplify
-        gdf["geometry"] = gdf["geometry"].apply(lambda g: g.buffer(0) if not g.is_valid else g)
-        gdf["geometry"] = gdf.simplify(tolerance=0.0001, preserve_topology=True)
+        print("OSM ID:", osm_id)
+        print("OSM Type:", osm_type)
 
-        # Export ORIGINAL (before merge)
-        original_geo_dict = json.loads(gdf.to_json())
-
-        original_path = os.path.join(
-            OUTPUT_FOLDER, f"{safe_name}_original.geojson"
+        # Query Overpass for tags
+        tags_gdf = ox.features_from_polygon(
+            gdf.iloc[0].geometry,
+            tags={"boundary": "administrative"}
         )
 
-        with open(original_path, "w", encoding="utf-8") as f:
-            json.dump(original_geo_dict, f, indent=2)
+        if not tags_gdf.empty and "admin_level" in tags_gdf.columns:
+            detected_levels = tags_gdf["admin_level"].unique()
+            print("Detected admin levels in polygon:", detected_levels)
+        else:
+            print("Could not detect admin_level via Overpass.")
+        # 3️⃣ Clean geometry only (no simplification for QA phase)
+        gdf = gdf.to_crs(epsg=4326)
+        gdf["geometry"] = gdf["geometry"].apply(
+            lambda g: g.buffer(0) if not g.is_valid else g
+        )
 
-        print(f"Exported Original: {original_path}")
+        # 4️⃣ Sanity checks
+        geom = gdf.iloc[0].geometry
 
-        # 4. Merge all polygons into one
-        merged_geom = unary_union(gdf.geometry.tolist())
+        print("Geometry type:", geom.geom_type)
+        print("Vertex count:", len(list(geom.exterior.coords)) if geom.geom_type == "Polygon" else "MultiPolygon")
 
-        # 5. Prepare GeoJSON dict with one Feature
-        feature = {
-            "type": "Feature",
-            "id": None,
-            "properties": {
-                "name": city_name,
-                "source": "user-drawn",
-                "nurseries": [],
-            },
-            "geometry": json.loads(gpd.GeoSeries([merged_geom]).to_json())["features"][0]["geometry"]
-        }
-
-        geo_dict = {
-            "type": "FeatureCollection",
-            "features": [feature]
-        }
-
-        # 6. Write pretty-printed coordinates
-        safe_name = city_name.replace(",", "").replace(" ", "_")
+        # 5️⃣ Export
+        safe_name = place_name.replace(",", "").replace(" ", "_")
         output_path = os.path.join(OUTPUT_FOLDER, f"{safe_name}.geojson")
-        write_pretty_geojson(geo_dict, output_path)
 
-        print(f"Exported Merged Polygon: {output_path}")
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(json.loads(gdf.to_json()), f, indent=2)
+
+        print(f"Exported: {output_path}")
 
     except Exception as e:
         print("Error:", e)
 
-# ------------------------------
-# MAIN EXECUTION
-# ------------------------------
 
 if __name__ == "__main__":
-    for city in CITIES:
-        process_city(city)
+    for entry in PLACES:
+        process_place(entry["name"], entry["admin_level"])
 
     print("\nBatch processing complete.")
